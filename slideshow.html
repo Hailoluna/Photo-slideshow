@@ -1,0 +1,879 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Offline Slideshow</title>
+<!--
+  Offline photo & video slideshow. One file, no internet, nothing uploaded.
+  Open it in Chrome, Edge, Firefox or Safari, choose a folder / files / Google
+  Drive .zip downloads, press Start.
+-->
+<style>
+:root {
+  --bg: #f5f4f0; --panel: #ffffff; --ink: #1d1c1a; --muted: #6a675f;
+  --line: #e1ded6; --accent: #2b62c9; --accent-ink: #ffffff; --soft: #eef2fb;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121212; --panel: #1c1c1c; --ink: #ecebe7; --muted: #9b978f;
+    --line: #2e2d2a; --accent: #7aa5ff; --accent-ink: #0b1224; --soft: #1b2232;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121212; --panel: #1c1c1c; --ink: #ecebe7; --muted: #9b978f;
+  --line: #2e2d2a; --accent: #7aa5ff; --accent-ink: #0b1224; --soft: #1b2232;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+button, select, input { font: inherit; color: inherit; }
+button {
+  border: 1px solid var(--line); background: var(--panel); border-radius: 10px;
+  padding: 10px 16px; cursor: pointer;
+}
+button:hover:not(:disabled) { border-color: var(--muted); }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+button.link { border: 0; background: none; padding: 4px; color: var(--muted); text-decoration: underline; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- Home screen ---------- */
+#home { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+#home h1 { font-size: 28px; margin: 0 0 4px; letter-spacing: -.01em; }
+#home > header p { margin: 0 0 24px; color: var(--muted); }
+.drop {
+  border: 2px dashed var(--line); border-radius: 16px; background: var(--panel);
+  padding: 28px 20px; text-align: center; transition: border-color .15s, background .15s;
+}
+.drop.over { border-color: var(--accent); background: var(--soft); }
+.drop .big { margin: 0 0 16px; font-weight: 600; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.status { margin: 16px 0 0; color: var(--muted); font-variant-numeric: tabular-nums; }
+.status strong { color: var(--ink); }
+.settings {
+  margin-top: 20px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 16px; padding: 8px 20px;
+}
+.setting {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 12px 0; border-bottom: 1px solid var(--line);
+}
+.setting:last-child { border-bottom: 0; }
+.setting small { display: block; color: var(--muted); font-size: 13px; }
+.setting select, .setting input[type=number] {
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px;
+}
+.setting input[type=number] { width: 80px; text-align: right; }
+.setting input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--accent); }
+.go { display: flex; gap: 10px; justify-content: center; margin: 24px 0; flex-wrap: wrap; }
+.go button { padding: 14px 28px; font-size: 17px; }
+details {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: 12px 20px; margin-top: 12px;
+}
+details summary { cursor: pointer; font-weight: 600; }
+details ol, details ul { padding-left: 20px; }
+details li { margin: 6px 0; }
+kbd {
+  font: 12px ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px;
+  border-radius: 5px; padding: 1px 6px; background: var(--bg);
+}
+
+/* ---------- Slideshow stage (always dark) ---------- */
+#stage { position: fixed; inset: 0; background: #000; color: #fff; overflow: hidden; user-select: none; }
+#stage[hidden] { display: none; }
+#stage:not(.ui) { cursor: none; }
+#view { position: absolute; inset: 0; touch-action: pan-y; }
+.layer { position: absolute; inset: 0; background: #000; visibility: hidden; overflow: hidden; }
+.layer.on { visibility: visible; }
+.layer .bg {
+  position: absolute; inset: -40px; width: calc(100% + 80px); height: calc(100% + 80px);
+  object-fit: cover; filter: blur(32px) brightness(.45) saturate(1.2);
+}
+.layer .media { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.fit-cover .layer .media { object-fit: cover; }
+.fit-cover .layer .bg { display: none; }
+#caption {
+  position: absolute; left: 20px; bottom: 22px; max-width: calc(100% - 40px);
+  font-size: 14px; text-shadow: 0 1px 3px #000, 0 0 12px #000; opacity: .9; pointer-events: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#caption[hidden] { display: none; }
+#progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255,255,255,.12); }
+#progress i { display: block; height: 100%; width: 0; background: rgba(255,255,255,.75); }
+#progress[hidden] { display: none; }
+#hud {
+  position: absolute; left: 0; right: 0; top: 0; padding: 14px 16px 40px;
+  display: flex; align-items: center; gap: 6px;
+  background: linear-gradient(rgba(0,0,0,.65), transparent);
+  opacity: 0; transform: translateY(-8px); transition: opacity .25s, transform .25s; pointer-events: none;
+}
+#stage.ui #hud { opacity: 1; transform: none; pointer-events: auto; }
+#hud button {
+  background: rgba(255,255,255,.1); border: 0; color: #fff; border-radius: 999px;
+  width: 44px; height: 44px; padding: 0; display: grid; place-items: center; flex: none;
+}
+#hud button:hover { background: rgba(255,255,255,.22); }
+#hud svg { width: 22px; height: 22px; fill: currentColor; }
+#hud .info { flex: 1; min-width: 0; padding: 0 8px; font-size: 14px; line-height: 1.3; }
+#hud .info b { display: block; font-variant-numeric: tabular-nums; }
+#hud .info span { display: block; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#flash {
+  position: absolute; left: 50%; top: 50%; width: 88px; height: 88px; margin: -44px 0 0 -44px;
+  border-radius: 50%; background: rgba(0,0,0,.55); display: grid; place-items: center;
+  opacity: 0; pointer-events: none; transition: opacity .3s;
+}
+#flash.show { opacity: 1; transition: none; }
+#flash svg { width: 40px; height: 40px; fill: #fff; }
+#toast {
+  position: absolute; left: 50%; bottom: 44px; transform: translateX(-50%);
+  background: rgba(20,20,20,.85); padding: 8px 14px; border-radius: 10px; font-size: 14px;
+  opacity: 0; transition: opacity .3s; pointer-events: none; max-width: calc(100% - 32px); text-align: center;
+}
+#toast.show { opacity: 1; }
+@media (max-width: 520px) {
+  #hud { gap: 2px; padding: 10px 8px 32px; }
+  #hud button { width: 40px; height: 40px; }
+  #hud .hide-sm { display: none; }
+  .setting { flex-wrap: wrap; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #hud, #flash, #toast { transition: none; }
+}
+</style>
+</head>
+<body>
+
+<main id="home">
+  <header>
+    <h1>Slideshow</h1>
+    <p>Plays photos and videos stored on this device. Nothing is uploaded, and it works with no internet connection.</p>
+  </header>
+
+  <section class="drop" id="drop">
+    <p class="big">Drop a folder, photos, videos or Google Drive .zip files here</p>
+    <div class="row">
+      <button id="pickFolder" class="primary">Choose folder</button>
+      <button id="pickFiles">Choose files or .zip</button>
+    </div>
+    <input type="file" id="folderInput" webkitdirectory directory multiple hidden>
+    <input type="file" id="fileInput" multiple accept="image/*,video/*,.zip,.heic,.heif,.mov,.mkv,.m4v" hidden>
+    <p id="status" class="status">Nothing loaded yet.</p>
+    <button id="clear" class="link" hidden>Clear and start over</button>
+  </section>
+
+  <section class="settings" aria-label="Settings">
+    <label class="setting"><span>Seconds per photo</span>
+      <input type="number" id="s-seconds" min="1" max="600" step="1"></label>
+    <label class="setting"><span>Order</span>
+      <select id="s-order">
+        <option value="shuffle">Shuffle</option>
+        <option value="name">By file name</option>
+        <option value="date">Oldest first</option>
+        <option value="date-desc">Newest first</option>
+      </select></label>
+    <label class="setting"><span>Transition</span>
+      <select id="s-transition">
+        <option value="fade">Crossfade</option>
+        <option value="slide">Slide</option>
+        <option value="none">None</option>
+      </select></label>
+    <label class="setting"><span>Slow zoom on photos<small>Gentle “Ken Burns” pan and zoom</small></span>
+      <input type="checkbox" id="s-kenburns"></label>
+    <label class="setting"><span>Fill the screen<small>Crops edges instead of showing a blurred border</small></span>
+      <input type="checkbox" id="s-cover"></label>
+    <label class="setting"><span>Include videos</span>
+      <input type="checkbox" id="s-videos"></label>
+    <label class="setting"><span>Video length</span>
+      <select id="s-videomode">
+        <option value="full">Play whole video</option>
+        <option value="15">Up to 15 seconds</option>
+        <option value="30">Up to 30 seconds</option>
+        <option value="60">Up to 1 minute</option>
+      </select></label>
+    <label class="setting"><span>Video sound</span>
+      <input type="checkbox" id="s-sound"></label>
+    <label class="setting"><span>Show file name and date</span>
+      <input type="checkbox" id="s-caption"></label>
+    <label class="setting"><span>Show progress bar</span>
+      <input type="checkbox" id="s-progress"></label>
+    <label class="setting"><span>Repeat forever</span>
+      <input type="checkbox" id="s-loop"></label>
+    <label class="setting"><span>Start in full screen</span>
+      <input type="checkbox" id="s-fullscreen"></label>
+  </section>
+
+  <div class="go">
+    <button id="resume" hidden>Resume</button>
+    <button id="start" class="primary" disabled>Start slideshow</button>
+  </div>
+
+  <details>
+    <summary>Getting your photos out of Google Drive</summary>
+    <ol>
+      <li><strong>Download a folder (simplest).</strong> On <em>drive.google.com</em>, right-click the folder and choose <em>Download</em>. Drive packs it into a .zip, and very large folders come as several .zip files. Click <em>Choose files or .zip</em> above and select all of them. You don't need to unzip anything.</li>
+      <li><strong>Stay in sync (Google Drive for desktop).</strong> Install Google Drive for desktop, right-click your photo folder, and choose <em>Offline access → Available offline</em>. Without this step the files only stream and won't play when you're offline. Then click <em>Choose folder</em> and pick the folder from your Google Drive (the <em>G:</em> drive on Windows, or <em>Google Drive</em> in Finder on a Mac).</li>
+      <li><strong>Phone or tablet.</strong> In the Drive app, select the photos and choose <em>Download</em> (Android) or <em>Send a copy → Save to Files</em> (iPhone/iPad). Then use <em>Choose files or .zip</em>.</li>
+    </ol>
+    <p>Browsers can't reopen a folder on their own, so you'll pick it again each time you open this page. iPhone photos saved as HEIC only show in Safari. Other browsers skip them and say how many were skipped.</p>
+  </details>
+  <details>
+    <summary>Keyboard and touch controls</summary>
+    <ul>
+      <li><kbd>Space</kbd> pause / play · <kbd>←</kbd> <kbd>→</kbd> previous / next</li>
+      <li><kbd>F</kbd> full screen · <kbd>M</kbd> sound on/off · <kbd>I</kbd> file name on/off</li>
+      <li><kbd>Esc</kbd> back to this screen (press it twice when in full screen)</li>
+      <li>Touch: swipe left or right to change photo, and tap to show the controls</li>
+      <li>Move the mouse to show the controls. They hide again after a few seconds.</li>
+    </ul>
+  </details>
+</main>
+
+<div id="stage" hidden>
+  <div id="view">
+    <div class="layer" id="layerA"></div>
+    <div class="layer" id="layerB"></div>
+  </div>
+  <div id="caption" hidden></div>
+  <div id="progress"><i></i></div>
+  <div id="flash"><svg viewBox="0 0 24 24" id="flashIcon"></svg></div>
+  <div id="toast"></div>
+  <div id="hud">
+    <button id="h-exit" title="Back to settings (Esc)" aria-label="Back to settings"><svg viewBox="0 0 24 24"><path d="M20 11H7.8l5.6-5.6L12 4l-8 8 8 8 1.4-1.4L7.8 13H20z"/></svg></button>
+    <div class="info"><b id="h-count"></b><span id="h-name"></span></div>
+    <button id="h-prev" title="Previous (←)" aria-label="Previous"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg></button>
+    <button id="h-play" title="Pause / play (Space)" aria-label="Pause or play"><svg viewBox="0 0 24 24" id="playIcon"></svg></button>
+    <button id="h-next" title="Next (→)" aria-label="Next"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6zm10-12v12h2V6z"/></svg></button>
+    <button id="h-sound" class="hide-sm" title="Sound (M)" aria-label="Sound on or off"><svg viewBox="0 0 24 24" id="soundIcon"></svg></button>
+    <button id="h-full" title="Full screen (F)" aria-label="Full screen"><svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7zm-2-4h2V7h3V5H5zm12 7h-3v2h5v-5h-2zM14 5v2h3v3h2V5z"/></svg></button>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+/* ================= Settings ================= */
+const DEFAULTS = {
+  seconds: 6, order: 'shuffle', transition: 'fade', kenburns: true, cover: false,
+  videos: true, videomode: 'full', sound: true, caption: false, progress: true,
+  loop: true, fullscreen: true,
+};
+const STORE_KEY = 'offline-slideshow-settings-v1';
+const settings = { ...DEFAULTS };
+try { Object.assign(settings, JSON.parse(localStorage.getItem(STORE_KEY) || '{}')); } catch {}
+function saveSettings() { try { localStorage.setItem(STORE_KEY, JSON.stringify(settings)); } catch {} }
+
+const $ = (id) => document.getElementById(id);
+const FIELDS = {
+  seconds: 's-seconds', order: 's-order', transition: 's-transition', kenburns: 's-kenburns',
+  cover: 's-cover', videos: 's-videos', videomode: 's-videomode', sound: 's-sound',
+  caption: 's-caption', progress: 's-progress', loop: 's-loop', fullscreen: 's-fullscreen',
+};
+for (const [key, id] of Object.entries(FIELDS)) {
+  const el = $(id);
+  if (el.type === 'checkbox') el.checked = !!settings[key]; else el.value = settings[key];
+  el.addEventListener('change', () => {
+    if (el.type === 'checkbox') settings[key] = el.checked;
+    else if (el.type === 'number') settings[key] = Math.min(600, Math.max(1, Number(el.value) || DEFAULTS[key]));
+    else settings[key] = el.value;
+    if (el.type === 'number') el.value = settings[key];
+    saveSettings();
+    if (key === 'order' || key === 'videos') needsReorder = true;
+    updateStatus();
+  });
+}
+
+/* ================= File types ================= */
+const MIME = {
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', jfif: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+  webp: 'image/webp', avif: 'image/avif', bmp: 'image/bmp', heic: 'image/heic', heif: 'image/heif',
+  mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm',
+  ogv: 'video/ogg', '3gp': 'video/3gpp', mkv: 'video/x-matroska',
+};
+const ext = (name) => (name.match(/\.([^.\/]+)$/) || [, ''])[1].toLowerCase();
+function kindOf(name, type) {
+  const t = type || MIME[ext(name)] || '';
+  if (t.startsWith('image/') && !t.includes('svg')) return 'image';
+  if (t.startsWith('video/')) return 'video';
+  return null;
+}
+const isJunk = (path) => /(^|\/)(\.|__MACOSX\/|Thumbs\.db$|desktop\.ini$)/i.test(path);
+
+/* ================= Minimal .zip reader (Google Drive downloads) =================
+   Reads the central directory only; each entry is extracted lazily when shown,
+   so a multi-gigabyte zip costs almost nothing until it plays. */
+async function readZip(file) {
+  const size = file.size;
+  const tailLen = Math.min(size, 22 + 65535 + 20);
+  const tail = new DataView(await file.slice(size - tailLen).arrayBuffer());
+  let eocd = -1;
+  for (let i = tailLen - 22; i >= 0; i--) if (tail.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error('not a zip');
+  let count = tail.getUint16(eocd + 10, true);
+  let cdSize = tail.getUint32(eocd + 12, true);
+  let cdOff = tail.getUint32(eocd + 16, true);
+  if (cdOff === 0xffffffff || count === 0xffff || cdSize === 0xffffffff) {
+    const loc = eocd - 20;
+    if (loc >= 0 && tail.getUint32(loc, true) === 0x07064b50) {
+      const z64 = Number(tail.getBigUint64(loc + 8, true));
+      const z = new DataView(await file.slice(z64, z64 + 56).arrayBuffer());
+      if (z.getUint32(0, true) === 0x06064b50) {
+        count = Number(z.getBigUint64(32, true));
+        cdSize = Number(z.getBigUint64(40, true));
+        cdOff = Number(z.getBigUint64(48, true));
+      }
+    }
+  }
+  const cd = new DataView(await file.slice(cdOff, cdOff + cdSize).arrayBuffer());
+  const utf8 = new TextDecoder();
+  const out = [];
+  let p = 0;
+  for (let n = 0; n < count && p + 46 <= cd.byteLength; n++) {
+    if (cd.getUint32(p, true) !== 0x02014b50) break;
+    const flags = cd.getUint16(p + 8, true);
+    const method = cd.getUint16(p + 10, true);
+    const time = cd.getUint16(p + 12, true), date = cd.getUint16(p + 14, true);
+    let csize = cd.getUint32(p + 20, true), usize = cd.getUint32(p + 24, true);
+    const nameLen = cd.getUint16(p + 28, true), extraLen = cd.getUint16(p + 30, true), commentLen = cd.getUint16(p + 32, true);
+    let localOff = cd.getUint32(p + 42, true);
+    const name = utf8.decode(new Uint8Array(cd.buffer, p + 46, nameLen));
+    // Zip64 sizes / offsets
+    let e = p + 46 + nameLen;
+    const eEnd = e + extraLen;
+    while (e + 4 <= eEnd) {
+      const id = cd.getUint16(e, true), len = cd.getUint16(e + 2, true);
+      if (id === 1) {
+        let q = e + 4;
+        if (usize === 0xffffffff) { usize = Number(cd.getBigUint64(q, true)); q += 8; }
+        if (csize === 0xffffffff) { csize = Number(cd.getBigUint64(q, true)); q += 8; }
+        if (localOff === 0xffffffff) { localOff = Number(cd.getBigUint64(q, true)); }
+      }
+      e += 4 + len;
+    }
+    p = eEnd + commentLen;
+
+    if (name.endsWith('/') || isJunk(name) || (flags & 1)) continue; // folder, junk, encrypted
+    const kind = kindOf(name);
+    if (!kind || (method !== 0 && method !== 8)) continue;
+    const type = MIME[ext(name)] || '';
+    const when = new Date((date >> 9) + 1980, ((date >> 5) & 15) - 1, date & 31,
+                          time >> 11, (time >> 5) & 63, (time & 31) * 2).getTime();
+    out.push({
+      name: name.split('/').pop(), path: file.name.replace(/\.zip$/i, '') + '/' + name,
+      kind, date: when, size: usize,
+      async get() {
+        const h = new DataView(await file.slice(localOff, localOff + 30).arrayBuffer());
+        const start = localOff + 30 + h.getUint16(26, true) + h.getUint16(28, true);
+        const raw = file.slice(start, start + csize);
+        if (method === 0) return new Blob([raw], { type });
+        const stream = raw.stream().pipeThrough(new DecompressionStream('deflate-raw'));
+        return new Blob([await new Response(stream).blob()], { type });
+      },
+    });
+  }
+  return out;
+}
+
+/* ================= Library ================= */
+let items = [];
+const seen = new Set();
+const badZips = [];
+let needsReorder = true;
+
+function addItem(it) {
+  const key = it.path + '|' + it.size;
+  if (seen.has(key)) return;
+  seen.add(key);
+  items.push(it);
+}
+
+async function addFiles(files) {
+  if (!files.length) return;
+  $('status').textContent = 'Reading…';
+  for (const f of files) {
+    const path = f._path || f.webkitRelativePath || f.name;
+    if (isJunk(path)) continue;
+    if (/\.zip$/i.test(f.name)) {
+      try { (await readZip(f)).forEach(addItem); }
+      catch { badZips.push(f.name); }
+      continue;
+    }
+    const kind = kindOf(f.name, f.type);
+    if (!kind) continue;
+    addItem({ name: f.name, path, kind, date: f.lastModified || 0, size: f.size, get: async () => f });
+  }
+  needsReorder = true;
+  updateStatus();
+}
+
+function updateStatus() {
+  const photos = items.filter((i) => i.kind === 'image').length;
+  const videos = items.length - photos;
+  const fmt = (n, w) => `<strong>${n.toLocaleString()}</strong> ${w}${n === 1 ? '' : 's'}`;
+  let html = items.length
+    ? `${fmt(photos, 'photo')} and ${fmt(videos, 'video')} ready.`
+    : 'Nothing loaded yet.';
+  if (items.length && !settings.videos && videos) html += ' Videos are switched off below.';
+  if (badZips.length) html += `<br>Couldn't open: ${badZips.map(escapeHtml).join(', ')}`;
+  $('status').innerHTML = html;
+  const playable = items.some((i) => settings.videos || i.kind === 'image');
+  $('start').disabled = !playable;
+  $('clear').hidden = !items.length;
+  $('resume').hidden = !(pos >= 0 && order.length && playable);
+  $('start').textContent = $('resume').hidden ? 'Start slideshow' : 'Start over';
+}
+function escapeHtml(s) { return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+$('pickFolder').onclick = () => $('folderInput').click();
+$('pickFiles').onclick = () => $('fileInput').click();
+$('folderInput').onchange = (e) => { addFiles([...e.target.files]); e.target.value = ''; };
+$('fileInput').onchange = (e) => { addFiles([...e.target.files]); e.target.value = ''; };
+$('clear').onclick = () => {
+  items = []; seen.clear(); badZips.length = 0; order = []; pos = -1; needsReorder = true;
+  updateStatus();
+};
+
+// Drag and drop, including whole folders
+const drop = $('drop');
+['dragenter', 'dragover'].forEach((t) => document.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'dragend'].forEach((t) => document.addEventListener(t, (e) => { if (!e.relatedTarget) drop.classList.remove('over'); }));
+document.addEventListener('drop', async (e) => {
+  e.preventDefault();
+  drop.classList.remove('over');
+  const entries = [...(e.dataTransfer.items || [])].map((i) => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+  if (!entries.length) return addFiles([...e.dataTransfer.files]);
+  $('status').textContent = 'Reading…';
+  const files = [];
+  for (const entry of entries) await walk(entry, '', files);
+  addFiles(files);
+});
+async function walk(entry, prefix, out) {
+  if (entry.isFile) {
+    try {
+      const f = await new Promise((res, rej) => entry.file(res, rej));
+      f._path = prefix + f.name;
+      out.push(f);
+    } catch {}
+  } else if (entry.isDirectory) {
+    const reader = entry.createReader();
+    let batch;
+    do {
+      batch = await new Promise((res) => reader.readEntries(res, () => res([])));
+      for (const child of batch) await walk(child, prefix + entry.name + '/', out);
+    } while (batch.length);
+  }
+}
+
+/* ================= Ordering ================= */
+let order = [];
+let pos = -1;
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+function buildOrder() {
+  const pool = items.filter((i) => settings.videos || i.kind === 'image');
+  if (settings.order === 'shuffle') order = shuffle(pool);
+  else if (settings.order === 'name') order = pool.sort((a, b) => collator.compare(a.path, b.path));
+  else {
+    const dir = settings.order === 'date' ? 1 : -1;
+    order = pool.sort((a, b) => dir * (a.date - b.date) || collator.compare(a.path, b.path));
+  }
+  needsReorder = false;
+}
+
+/* ================= Stage ================= */
+const stage = $('stage');
+const layers = [$('layerA'), $('layerB')];
+let front = 0;            // index of the visible layer
+let token = 0;            // invalidates stale async loads
+let current = null;       // { item, el, url, kb, kind }
+let paused = false;
+let showing = false;
+let failStreak = 0;
+let skipped = 0;
+let preload = null;       // { index, item, promise }
+let endReached = false;
+
+const ICON = {
+  play: '<path d="M8 5v14l11-7z"/>',
+  pause: '<path d="M6 5h4v14H6zm8 0h4v14h-4z"/>',
+  soundOn: '<path d="M3 9v6h4l5 5V4L7 9zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/>',
+  soundOff: '<path d="M16.5 12A4.5 4.5 0 0 0 14 8v2.2l2.5 2.5V12zM19 12a7 7 0 0 1-.6 2.8l1.5 1.5A9 9 0 0 0 14 3.2v2.1a7 7 0 0 1 5 6.7zM4.3 3 3 4.3 7.7 9H3v6h4l5 5v-6.7l4.3 4.2a7 7 0 0 1-2.3 1.2v2.1a9 9 0 0 0 3.7-1.8l2 2 1.3-1.3zM12 4 9.9 6.1 12 8.2z"/>',
+};
+function refreshIcons() {
+  $('playIcon').innerHTML = paused ? ICON.play : ICON.pause;
+  $('soundIcon').innerHTML = settings.sound ? ICON.soundOn : ICON.soundOff;
+}
+
+async function loadMedia(item) {
+  const blob = await item.get();
+  const url = URL.createObjectURL(blob);
+  try {
+    if (item.kind === 'image') {
+      const img = new Image();
+      img.className = 'media';
+      img.decoding = 'async';
+      img.src = url;
+      await img.decode();
+      return { item, el: img, url, kind: 'image' };
+    }
+    const v = document.createElement('video');
+    v.className = 'media';
+    v.playsInline = true;
+    v.preload = 'auto';
+    v.muted = !settings.sound;
+    v.src = url;
+    await new Promise((res, rej) => {
+      const t = setTimeout(() => rej(new Error('timeout')), 20000);
+      v.addEventListener('loadeddata', () => { clearTimeout(t); res(); }, { once: true });
+      v.addEventListener('error', () => { clearTimeout(t); rej(v.error); }, { once: true });
+    });
+    return { item, el: v, url, kind: 'video' };
+  } catch (err) {
+    URL.revokeObjectURL(url);
+    throw err;
+  }
+}
+function dispose(m) {
+  if (!m) return;
+  if (m.kind === 'video') { m.el.pause(); m.el.removeAttribute('src'); m.el.load(); }
+  URL.revokeObjectURL(m.url);
+}
+function discardPreload() {
+  if (preload) { preload.promise.then(dispose, () => {}); preload = null; }
+}
+
+function wrapIndex(i) {
+  const n = order.length;
+  return ((i % n) + n) % n;
+}
+
+async function go(index, dir = 1) {
+  const my = ++token;
+  clearTimer();
+  if (!order.length) return;
+  // End of the list
+  if (index >= order.length || index < 0) {
+    if (!settings.loop) {
+      if (index < 0) { index = 0; if (index === pos) return; }
+      else if (endReached) { endReached = false; index = 0; paused = false; refreshIcons(); }
+      else { endReached = true; setPaused(true); toast('End of slideshow. Press → to start again.', 4000); return; }
+    } else if (index >= order.length && settings.order === 'shuffle') {
+      const last = order[order.length - 1];
+      shuffle(order);
+      if (order.length > 1 && order[0] === last) [order[0], order[1]] = [order[1], order[0]];
+      discardPreload();
+      index = 0;
+    } else index = wrapIndex(index);
+  }
+
+  let media;
+  try {
+    media = preload && preload.index === index && preload.item === order[index]
+      ? await preload.promise
+      : await loadMedia(order[index]);
+    if (preload && preload.index === index) preload = null;
+  } catch {
+    if (preload && preload.index === index) preload = null;
+    if (my !== token) return;
+    skipped++;
+    if (++failStreak >= order.length) { toast("None of these files can be shown in this browser."); return; }
+    pos = index;
+    return go(index + dir, dir);
+  }
+  if (my !== token) { dispose(media); return; }
+  failStreak = 0;
+  endReached = false;
+  pos = index;
+  present(media, dir);
+  if (skipped) { toast(`Skipped ${skipped} file${skipped === 1 ? '' : 's'} this browser can't show (often HEIC photos or HEVC videos).`, 4000); skipped = 0; }
+  // Preload the next one
+  const ni = pos + 1 < order.length ? pos + 1 : (settings.loop && settings.order !== 'shuffle' ? 0 : -1);
+  discardPreload();
+  if (ni >= 0 && ni !== pos) preload = { index: ni, item: order[ni], promise: loadMedia(order[ni]) };
+  if (preload) preload.promise.catch(() => {});
+}
+
+function present(media, dir) {
+  const prev = current;
+  const back = 1 - front;
+  const incoming = layers[back];
+  const outgoing = layers[front];
+
+  // Build the incoming layer
+  incoming.getAnimations().forEach((a) => a.cancel());
+  incoming.replaceChildren();
+  if (media.kind === 'image' && !settings.cover) {
+    const bg = new Image();
+    bg.className = 'bg';
+    bg.src = media.url;
+    bg.alt = '';
+    incoming.append(bg);
+  }
+  media.el.alt = media.item.name;
+  incoming.append(media.el);
+  incoming.style.zIndex = 2;
+  outgoing.style.zIndex = 1;
+  incoming.classList.add('on');
+
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const kind = reduce ? 'fade' : settings.transition;
+  const dur = kind === 'none' || !prev ? 0 : kind === 'slide' ? 600 : 1000;
+  let anim;
+  if (dur) {
+    anim = kind === 'slide'
+      ? incoming.animate([{ transform: `translateX(${dir * 100}%)` }, { transform: 'none' }], { duration: dur, easing: 'cubic-bezier(.2,.7,.2,1)' })
+      : incoming.animate([{ opacity: 0 }, { opacity: 1 }], { duration: dur, easing: 'ease-in-out' });
+    if (kind === 'slide') outgoing.animate([{ transform: 'none' }, { transform: `translateX(${-dir * 100}%)` }], { duration: dur, easing: 'cubic-bezier(.2,.7,.2,1)', fill: 'forwards' });
+  }
+  front = back;
+  current = media;
+
+  // Retire the previous slide once the new one covers it
+  if (prev && prev.kind === 'video') prev.el.pause();
+  const retire = () => {
+    if (layers[front] === outgoing) return;
+    outgoing.classList.remove('on');
+    outgoing.getAnimations().forEach((a) => a.cancel());
+    outgoing.replaceChildren();
+    dispose(prev);
+  };
+  if (anim) anim.finished.then(retire, retire); else retire();
+
+  // Ken Burns
+  const photoMs = settings.seconds * 1000;
+  if (media.kind === 'image' && settings.kenburns && !reduce) {
+    const z = 1.08 + Math.random() * 0.07;
+    const x = (Math.random() * 6 - 3).toFixed(2), y = (Math.random() * 6 - 3).toFixed(2);
+    const zoomIn = Math.random() < 0.5;
+    const a = { transform: 'scale(1) translate(0,0)' }, b = { transform: `scale(${z}) translate(${x}%,${y}%)` };
+    media.kb = media.el.animate(zoomIn ? [a, b] : [b, a], { duration: photoMs + dur, easing: 'linear', fill: 'forwards' });
+    if (paused) media.kb.pause();
+  }
+
+  // Timing
+  if (media.kind === 'image') {
+    startTimer(photoMs + dur * 0.5);
+  } else {
+    const v = media.el;
+    v.muted = !settings.sound;
+    v.onended = () => next();
+    if (settings.videomode !== 'full') startTimer(Number(settings.videomode) * 1000);
+    else { timerDuration = 0; }
+    if (!paused) playVideo(v);
+    if (paused) pauseTimer();
+  }
+  if (paused && media.kind === 'image') pauseTimer();
+
+  // Labels
+  const d = media.item.date ? new Date(media.item.date) : null;
+  const dateText = d && d.getFullYear() > 1980 ? d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '';
+  $('h-count').textContent = `${pos + 1} / ${order.length}`;
+  $('h-name').textContent = media.item.path;
+  $('caption').textContent = [media.item.path, dateText].filter(Boolean).join(' · ');
+  $('caption').hidden = !settings.caption;
+}
+
+function playVideo(v) {
+  const p = v.play();
+  if (p) p.catch(() => {
+    // Autoplay with sound blocked — retry muted rather than stalling.
+    if (!v.muted) { v.muted = true; v.play().catch(() => {}); toast('Sound was blocked by the browser. Press M to turn it on.'); }
+  });
+}
+
+/* ---------- Timer ---------- */
+let timer = null, deadline = 0, remaining = 0, timerDuration = 0;
+function startTimer(ms) { timerDuration = ms; remaining = ms; resumeTimer(); }
+function resumeTimer() {
+  clearTimeout(timer);
+  if (!timerDuration) return;
+  deadline = performance.now() + remaining;
+  timer = setTimeout(() => next(), remaining);
+}
+function pauseTimer() {
+  clearTimeout(timer);
+  if (timerDuration) remaining = Math.max(0, deadline - performance.now());
+}
+function clearTimer() { clearTimeout(timer); timerDuration = 0; remaining = 0; }
+
+function progressLoop() {
+  if (!showing) return;
+  let f = 0;
+  if (current) {
+    if (current.kind === 'video' && settings.videomode === 'full') {
+      const v = current.el;
+      f = v.duration ? v.currentTime / v.duration : 0;
+    } else if (timerDuration) {
+      const left = paused ? remaining : Math.max(0, deadline - performance.now());
+      f = 1 - left / timerDuration;
+    }
+  }
+  $('progress').firstElementChild.style.width = (Math.min(1, f) * 100).toFixed(2) + '%';
+  requestAnimationFrame(progressLoop);
+}
+
+/* ---------- Controls ---------- */
+const next = () => go(pos + 1, 1);
+const prev = () => go(pos - 1, -1);
+
+function setPaused(p) {
+  paused = p;
+  if (current) {
+    if (current.kind === 'video') p ? current.el.pause() : playVideo(current.el);
+    if (current.kb) p ? current.kb.pause() : current.kb.play();
+  }
+  if (p) pauseTimer(); else resumeTimer();
+  refreshIcons();
+}
+function togglePause() {
+  setPaused(!paused);
+  const f = $('flash');
+  $('flashIcon').innerHTML = paused ? ICON.pause : ICON.play;
+  f.classList.add('show');
+  requestAnimationFrame(() => requestAnimationFrame(() => f.classList.remove('show')));
+}
+function toggleSound() {
+  settings.sound = !settings.sound;
+  $('s-sound').checked = settings.sound;
+  saveSettings();
+  if (current && current.kind === 'video') current.el.muted = !settings.sound;
+  refreshIcons();
+  toast(settings.sound ? 'Sound on' : 'Sound off', 1200);
+}
+function toggleCaption() {
+  settings.caption = !settings.caption;
+  $('s-caption').checked = settings.caption;
+  saveSettings();
+  $('caption').hidden = !settings.caption;
+}
+function toggleFullscreen() {
+  const fs = document.fullscreenElement || document.webkitFullscreenElement;
+  if (fs) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  else enterFullscreen();
+}
+function enterFullscreen() {
+  const req = document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen;
+  if (req) try { const r = req.call(document.documentElement); if (r) r.catch(() => {}); } catch {}
+}
+
+let toastTimer;
+function toast(msg, ms = 2500) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), ms);
+}
+
+let uiTimer;
+function pokeUI() {
+  stage.classList.add('ui');
+  clearTimeout(uiTimer);
+  uiTimer = setTimeout(() => stage.classList.remove('ui'), 2800);
+}
+
+/* ---------- Screen wake lock ---------- */
+let wakeLock = null;
+async function keepAwake() {
+  try { if ('wakeLock' in navigator && !document.hidden) wakeLock = await navigator.wakeLock.request('screen'); } catch {}
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden && showing) keepAwake(); });
+
+/* ---------- Start / stop ---------- */
+function openStage(restart) {
+  if (restart || needsReorder || pos < 0) { buildOrder(); pos = -1; discardPreload(); }
+  if (!order.length) return;
+  $('home').hidden = true;
+  stage.hidden = false;
+  stage.classList.toggle('fit-cover', settings.cover);
+  $('progress').hidden = !settings.progress;
+  $('caption').hidden = !settings.caption;
+  if (current && current.kind === 'video') current.el.muted = !settings.sound;
+  showing = true;
+  if (settings.fullscreen) enterFullscreen();
+  keepAwake();
+  failStreak = 0;
+  paused = false;
+  refreshIcons();
+  pokeUI();
+  requestAnimationFrame(progressLoop);
+  if (pos < 0 || !current) go(Math.max(0, pos));
+  else { setPaused(false); }
+}
+function closeStage() {
+  if (!showing) return;
+  showing = false;
+  setPaused(true);
+  stage.hidden = true;
+  $('home').hidden = false;
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+  const fs = document.fullscreenElement || document.webkitFullscreenElement;
+  if (fs) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  updateStatus();
+}
+
+$('start').onclick = () => {
+  token++; clearTimer(); discardPreload();
+  layers.forEach((l) => { l.classList.remove('on'); l.replaceChildren(); });
+  dispose(current); current = null;
+  openStage(true);
+};
+$('resume').onclick = () => openStage(false);
+$('h-exit').onclick = closeStage;
+$('h-prev').onclick = () => { prev(); pokeUI(); };
+$('h-next').onclick = () => { next(); pokeUI(); };
+$('h-play').onclick = () => { togglePause(); pokeUI(); };
+$('h-sound').onclick = () => { toggleSound(); pokeUI(); };
+$('h-full').onclick = () => { toggleFullscreen(); pokeUI(); };
+
+stage.addEventListener('mousemove', pokeUI);
+const view = $('view');
+let downX = null, downY = null, downType = '';
+view.addEventListener('pointerdown', (e) => { downX = e.clientX; downY = e.clientY; downType = e.pointerType; });
+view.addEventListener('pointerup', (e) => {
+  if (downX === null) return;
+  const dx = e.clientX - downX, dy = e.clientY - downY;
+  downX = null;
+  if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) { dx < 0 ? next() : prev(); return; }
+  if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
+    if (downType === 'mouse') togglePause();
+    else if (stage.classList.contains('ui')) { clearTimeout(uiTimer); stage.classList.remove('ui'); }
+    else pokeUI();
+  }
+});
+view.addEventListener('dblclick', toggleFullscreen);
+
+document.addEventListener('keydown', (e) => {
+  if (!showing || e.ctrlKey || e.metaKey || e.altKey) return;
+  switch (e.key) {
+    case ' ': case 'k': case 'K': e.preventDefault(); togglePause(); break;
+    case 'ArrowRight': case 'PageDown': e.preventDefault(); next(); break;
+    case 'ArrowLeft': case 'PageUp': e.preventDefault(); prev(); break;
+    case 'f': case 'F': toggleFullscreen(); break;
+    case 'm': case 'M': toggleSound(); break;
+    case 'i': case 'I': toggleCaption(); break;
+    case 'Escape':
+      if (!(document.fullscreenElement || document.webkitFullscreenElement)) closeStage();
+      break;
+    default: return;
+  }
+  pokeUI();
+});
+
+refreshIcons();
+updateStatus();
+</script>
+</body>
+</html>
