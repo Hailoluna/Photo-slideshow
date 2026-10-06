@@ -60,7 +60,7 @@ function ConvertTo-JsonString([string]$Text) {
 function Test-HasKey($Value, [string]$Key, [int]$Depth = 0) {
   if ($null -eq $Value -or $Depth -gt 8 -or $Value -is [string]) { return $false }
   if ($Value -is [System.Collections.IDictionary]) {
-    if ($Value.Contains($Key)) { return $true }
+    if ($Value.Keys -contains $Key) { return $true }
     foreach ($v in $Value.Values) { if (Test-HasKey $v $Key ($Depth + 1)) { return $true } }
   } elseif ($Value -is [array]) {
     foreach ($v in $Value) { if (Test-HasKey $v $Key ($Depth + 1)) { return $true } }
