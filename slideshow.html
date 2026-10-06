@@ -84,6 +84,7 @@ details {
 details summary { cursor: pointer; font-weight: 600; }
 details ol, details ul { padding-left: 20px; }
 details li { margin: 6px 0; }
+details a { color: var(--accent); }
 kbd {
   font: 12px ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px;
   border-radius: 5px; padding: 1px 6px; background: var(--bg);
@@ -225,7 +226,7 @@ kbd {
     <summary>Playing a Google Photos album (Windows)</summary>
     <ol>
       <li>In Google Photos, open the album, click <em>Share</em>, then <em>Create link</em> or <em>Copy link</em>.</li>
-      <li>Keep <em>slideshow.html</em>, <em>sync-google-photos.ps1</em> and <em>Start Slideshow.cmd</em> together in one folder.</li>
+      <li>On your Windows PC, <a href="https://github.com/Hailoluna/Photo-slideshow/archive/refs/heads/main.zip">download the slideshow kit</a>. Right-click the zip, choose <em>Properties</em>, tick <em>Unblock</em>, then extract it somewhere permanent, such as <em>Documents</em>. Keep the files together in one folder.</li>
       <li>Double-click <em>Start Slideshow.cmd</em>. The first time, it asks for the album link. It then downloads new photos into the <em>Photos</em> folder and opens the slideshow full screen. Press <kbd>Alt</kbd>+<kbd>F4</kbd> to close it.</li>
     </ol>
     <p>Each later start downloads only what's new, and removes photos you've taken out of the album. With no internet, it just plays what's already downloaded. To add more albums, put one link per line in <em>albums.txt</em>.</p>
