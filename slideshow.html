@@ -73,6 +73,8 @@ button.link { border: 0; background: none; padding: 4px; color: var(--muted); te
 }
 .setting input[type=number] { width: 80px; text-align: right; }
 .setting input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--accent); }
+.countdown { text-align: center; margin: 20px 0 -8px; color: var(--muted); }
+.countdown b { color: var(--ink); font-variant-numeric: tabular-nums; }
 .go { display: flex; gap: 10px; justify-content: center; margin: 24px 0; flex-wrap: wrap; }
 .go button { padding: 14px 28px; font-size: 17px; }
 details {
@@ -209,13 +211,25 @@ kbd {
       <input type="checkbox" id="s-loop"></label>
     <label class="setting"><span>Start in full screen</span>
       <input type="checkbox" id="s-fullscreen"></label>
+    <label class="setting"><span>Start automatically<small>When your Google Photos album has been synced</small></span>
+      <input type="checkbox" id="s-autostart"></label>
   </section>
 
+  <p id="countdown" class="countdown" hidden>Starting in <b id="countdownN">5</b>… <button id="cancelAuto" class="link">Cancel</button></p>
   <div class="go">
     <button id="resume" hidden>Resume</button>
     <button id="start" class="primary" disabled>Start slideshow</button>
   </div>
 
+  <details>
+    <summary>Playing a Google Photos album (Windows)</summary>
+    <ol>
+      <li>In Google Photos, open the album, click <em>Share</em>, then <em>Create link</em> or <em>Copy link</em>.</li>
+      <li>Keep <em>slideshow.html</em>, <em>sync-google-photos.ps1</em> and <em>Start Slideshow.cmd</em> together in one folder.</li>
+      <li>Double-click <em>Start Slideshow.cmd</em>. The first time, it asks for the album link. It then downloads new photos into the <em>Photos</em> folder and opens the slideshow full screen. Press <kbd>Alt</kbd>+<kbd>F4</kbd> to close it.</li>
+    </ol>
+    <p>Each later start downloads only what's new, and removes photos you've taken out of the album. With no internet, it just plays what's already downloaded. To add more albums, put one link per line in <em>albums.txt</em>.</p>
+  </details>
   <details>
     <summary>Getting your photos out of Google Drive</summary>
     <ol>
@@ -231,6 +245,7 @@ kbd {
       <li><kbd>Space</kbd> pause / play · <kbd>←</kbd> <kbd>→</kbd> previous / next</li>
       <li><kbd>F</kbd> full screen · <kbd>M</kbd> sound on/off · <kbd>I</kbd> file name on/off</li>
       <li><kbd>Esc</kbd> back to this screen (press it twice when in full screen)</li>
+      <li><kbd>Alt</kbd>+<kbd>F4</kbd> closes the window opened by <em>Start Slideshow.cmd</em></li>
       <li>Touch: swipe left or right to change photo, and tap to show the controls</li>
       <li>Move the mouse to show the controls. They hide again after a few seconds.</li>
     </ul>
@@ -257,6 +272,8 @@ kbd {
   </div>
 </div>
 
+<!-- Written by sync-google-photos.ps1 (Google Photos albums). Missing is fine. -->
+<script src="Photos/library.js" charset="utf-8"></script>
 <script>
 'use strict';
 
@@ -264,7 +281,7 @@ kbd {
 const DEFAULTS = {
   seconds: 6, order: 'shuffle', transition: 'fade', kenburns: true, cover: false,
   videos: true, videomode: 'full', sound: true, caption: false, progress: true,
-  loop: true, fullscreen: true,
+  loop: true, fullscreen: true, autostart: true,
 };
 const STORE_KEY = 'offline-slideshow-settings-v1';
 const settings = { ...DEFAULTS };
@@ -276,6 +293,7 @@ const FIELDS = {
   seconds: 's-seconds', order: 's-order', transition: 's-transition', kenburns: 's-kenburns',
   cover: 's-cover', videos: 's-videos', videomode: 's-videomode', sound: 's-sound',
   caption: 's-caption', progress: 's-progress', loop: 's-loop', fullscreen: 's-fullscreen',
+  autostart: 's-autostart',
 };
 for (const [key, id] of Object.entries(FIELDS)) {
   const el = $(id);
@@ -421,6 +439,7 @@ function updateStatus() {
   let html = items.length
     ? `${fmt(photos, 'photo')} and ${fmt(videos, 'video')} ready.`
     : 'Nothing loaded yet.';
+  if (libraryNote) html = libraryNote + '<br>' + html;
   if (items.length && !settings.videos && videos) html += ' Videos are switched off below.';
   if (badZips.length) html += `<br>Couldn't open: ${badZips.map(escapeHtml).join(', ')}`;
   $('status').innerHTML = html;
@@ -517,8 +536,7 @@ function refreshIcons() {
 }
 
 async function loadMedia(item) {
-  const blob = await item.get();
-  const url = URL.createObjectURL(blob);
+  const url = item.src || URL.createObjectURL(await item.get());
   try {
     if (item.kind === 'image') {
       const img = new Image();
@@ -541,14 +559,14 @@ async function loadMedia(item) {
     });
     return { item, el: v, url, kind: 'video' };
   } catch (err) {
-    URL.revokeObjectURL(url);
+    if (!item.src) URL.revokeObjectURL(url);
     throw err;
   }
 }
 function dispose(m) {
   if (!m) return;
   if (m.kind === 'video') { m.el.pause(); m.el.removeAttribute('src'); m.el.load(); }
-  URL.revokeObjectURL(m.url);
+  if (!m.item.src) URL.revokeObjectURL(m.url);
 }
 function discardPreload() {
   if (preload) { preload.promise.then(dispose, () => {}); preload = null; }
@@ -871,6 +889,40 @@ document.addEventListener('keydown', (e) => {
   }
   pokeUI();
 });
+
+/* ---------- Synced Google Photos library ---------- */
+let libraryNote = '';
+(function loadLibrary() {
+  const lib = window.SLIDESHOW_LIBRARY;
+  if (!lib || !Array.isArray(lib.items)) return;
+  let n = 0;
+  for (const it of lib.items) {
+    if (!it || typeof it.path !== 'string' || (it.kind !== 'image' && it.kind !== 'video')) continue;
+    addItem({
+      name: it.path.split('/').pop(), path: it.path.replace(/^Photos\//, ''), kind: it.kind,
+      date: Number(it.date) || 0, size: Number(it.size) || 0,
+      src: it.path.split('/').map(encodeURIComponent).join('/'),
+    });
+    n++;
+  }
+  const when = lib.syncedAt ? new Date(lib.syncedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
+  libraryNote = lib.status === 'offline'
+    ? `Offline, so playing the Google Photos album as last downloaded (checked ${escapeHtml(when)}).`
+    : `Google Photos album synced ${escapeHtml(when)}.`;
+  if (n && settings.autostart) {
+    let left = 5;
+    $('countdown').hidden = false;
+    const tick = setInterval(() => {
+      left--;
+      $('countdownN').textContent = left;
+      if (left <= 0) { stop(); if (!showing && !$('start').disabled) $('start').click(); }
+    }, 1000);
+    const stop = () => { clearInterval(tick); $('countdown').hidden = true; };
+    $('cancelAuto').onclick = stop;
+    $('home').addEventListener('change', stop, { once: true });
+    $('start').addEventListener('click', stop, { once: true });
+  }
+})();
 
 refreshIcons();
 updateStatus();
